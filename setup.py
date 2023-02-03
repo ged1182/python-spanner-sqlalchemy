@@ -22,7 +22,7 @@ import setuptools
 name = "sqlalchemy-spanner"
 description = "SQLAlchemy dialect integrated into Cloud Spanner database"
 dependencies = [
-    "sqlalchemy>=1.1.13",
+    "sqlalchemy<2.0.0",
     "google-cloud-spanner>=3.12.0",
     "alembic",
 ]
@@ -37,10 +37,10 @@ extras = {
 BASE_DIR = os.path.dirname(__file__)
 VERSION_FILENAME = os.path.join(BASE_DIR, "version.py")
 PACKAGE_INFO = {}
-with open(VERSION_FILENAME) as f:
-    exec(f.read(), PACKAGE_INFO)
-version = PACKAGE_INFO["__version__"]
-
+# with open(VERSION_FILENAME) as f:
+#     exec(f.read(), PACKAGE_INFO)
+# version = PACKAGE_INFO["__version__"]
+version="1.2.2rc2"
 package_root = os.path.abspath(os.path.dirname(__file__))
 readme_filename = os.path.join(package_root, "README.rst")
 with io.open(readme_filename, encoding="utf-8") as readme_file:
@@ -61,7 +61,7 @@ if "google.cloud" in packages:
 
 setuptools.setup(
     author="Google LLC",
-    author_email="cloud-spanner-developers@googlegroups.com",
+    author_email="ged1182@gmail.com",
     classifiers=["Intended Audience :: Developers"],
     description=description,
     long_description=readme,
@@ -75,8 +75,9 @@ setuptools.setup(
     name=name,
     namespace_packages=namespaces,
     packages=packages,
-    url="https://github.com/cloudspannerecosystem/python-spanner-sqlalchemy",
+    url="https://github.com/ged1182/python-spanner-sqlalchemy",
     version=version,
+    package_data={'': ['version.py']},
     include_package_data=True,
     zip_safe=False,
 )

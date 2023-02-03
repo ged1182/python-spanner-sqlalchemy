@@ -1,3 +1,6 @@
+Forked from official release - customized to handle ttl (row deletion policy) and column `OPTIONS (allow_auto_commit = true)`
+
+
 Spanner dialect for SQLAlchemy
 ==============================
 

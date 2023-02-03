@@ -150,17 +150,13 @@ class SpannerExecutionContext(DefaultExecutionContext):
         """
         super(SpannerExecutionContext, self).pre_exec()
 
-        read_only = self.execution_options.get("read_only")
+        read_only = self.execution_options.get("read_only", None)
         if read_only is not None:
             self._dbapi_connection.connection.read_only = read_only
 
-        staleness = self.execution_options.get("staleness")
+        staleness = self.execution_options.get("staleness", None)
         if staleness is not None:
             self._dbapi_connection.connection.staleness = staleness
-
-        priority = self.execution_options.get("request_priority")
-        if priority is not None:
-            self._dbapi_connection.connection.request_priority = priority
 
 
 class SpannerIdentifierPreparer(IdentifierPreparer):
@@ -341,10 +337,11 @@ class SpannerDDLCompiler(DDLCompiler):
         Overridden to move the NOT NULL statement to front
         of a computed column expression definitions.
         """
+        column_type = self.dialect.type_compiler.process(column.type, type_expression=column)
         colspec = (
             self.preparer.format_column(column)
             + " "
-            + self.dialect.type_compiler.process(column.type, type_expression=column)
+            + column_type
         )
         if not column.nullable:
             colspec += " NOT NULL"
@@ -353,9 +350,11 @@ class SpannerDDLCompiler(DDLCompiler):
         if default is not None:
             colspec += " DEFAULT (" + default + ")"
 
-        if hasattr(column, "computed") and column.computed is not None:
+        if column.computed is not None:
             colspec += " " + self.process(column.computed)
-
+        
+        if "spanner_allow_commit_timestamp" in column.kwargs and column_type == "TIMESTAMP":
+            colspec += " OPTIONS (allow_commit_timestamp=true)"
         return colspec
 
     def visit_computed_column(self, generated, **kw):
@@ -442,7 +441,10 @@ class SpannerDDLCompiler(DDLCompiler):
 
             if table.kwargs.get("spanner_interleave_on_delete_cascade"):
                 post_cmds += " ON DELETE CASCADE"
-
+        
+        if table.kwargs.get("spanner_row_deletion_policy") is not None:
+            timestamp_column, num_days = table.kwargs.get("spanner_row_deletion_policy")
+            post_cmds += f",\nROW DELETION POLICY ( OLDER_THAN ( {timestamp_column}, INTERVAL {num_days} DAY ) )"
         return post_cmds
 
 
@@ -794,13 +796,7 @@ SELECT
     ctu.table_name,
     ctu.table_schema,
     ARRAY_AGG(DISTINCT ccu.column_name),
-    ARRAY_AGG(
-        DISTINCT CONCAT(
-            CAST(kcu.ordinal_position AS STRING),
-            '_____',
-            kcu.column_name
-        )
-    )
+    ARRAY_AGG(kcu.column_name)
 FROM information_schema.table_constraints AS tc
 JOIN information_schema.constraint_column_usage AS ccu
     ON ccu.constraint_name = tc.constraint_name
@@ -821,21 +817,6 @@ GROUP BY tc.constraint_name, ctu.table_name, ctu.table_schema
             rows = snap.execute_sql(sql)
 
             for row in rows:
-                # Due to Spanner limitations, arrays order is not guaranteed during
-                # aggregation. Still, for constraints it's vital to keep the order
-                # of the referred columns, otherwise SQLAlchemy and Alembic may start
-                # to occasionally drop and recreate constraints. To avoid this, the
-                # method uses prefixes with the `key_column_usage.ordinal_position`
-                # values to ensure the columns are aggregated into an array in the
-                # correct order. Prefixes are only used under the hood. For more details
-                # see the issue:
-                # https://github.com/googleapis/python-spanner-sqlalchemy/issues/271
-                #
-                # The solution seem a bit clumsy, and should be improved as soon as a
-                # better approach found.
-                for index, value in enumerate(sorted(row[4])):
-                    row[4][index] = value.split("_____")[1]
-
                 keys.append(
                     {
                         "name": row[0],
@@ -845,7 +826,6 @@ GROUP BY tc.constraint_name, ctu.table_name, ctu.table_schema
                         "constrained_columns": row[4],
                     }
                 )
-
         return keys
 
     @engine_to_connection
